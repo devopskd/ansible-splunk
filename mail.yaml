@@ -1,0 +1,111 @@
+---
+- name: Install Linux Universal Forwarder
+  hosts: '{{ host }}'
+  vars:
+    splunk_working_directory: '/tmp/Splunk/'
+    splunk_uf_file_centos: 'splunkforwarder-7.2.3-06d57c595b80-Linux-x86_64.tgz'
+    splunk_uf_file_arm: 'splunkforwarder-7.2.3-06d57c595b80-Linux-arm.tgz'
+  roles:
+    - common
+...
+- include_vars: uf_user_password.yml
+######
+- name: Check if Splunk already installed
+  stat:
+    path: '/opt/splunkforwarder'
+  register: splunk_path_present
+ 
+- name: Check if Splunk forwarder package already transferred - CentOS
+  stat:
+    path: "{{splunk_working_directory}}{{splunk_uf_file_centos}}"
+  register: splunk_installer_present
+  when:
+    - ansible_facts['distribution'] == "CentOS"
+ 
+- name: Check if Splunk forwarder package already transferred - Raspberry Pi
+  stat:
+    path: "{{splunk_working_directory}}{{splunk_uf_file_arm}}"
+  register: splunk_installer_present
+  when:
+    - ansible_facts['distribution'] != "CentOS"
+####
+- name: Copy forwarder over to system - CentOS
+  copy:
+    src: /etc/ansible/playbooks/Splunk_UF_Install/roles/common/files/{{splunk_uf_file_centos}}
+    dest: "{{splunk_working_directory}}"
+    owner: cmbusse
+    group: cmbusse
+    mode: 0644
+  when:
+    - splunk_installer_present.stat.exists == false
+    - splunk_path_present.stat.exists == false
+    - ansible_facts['distribution'] == "CentOS"
+ 
+- name: Copy forwarder over to system - Raspberry Pi
+  copy:
+    src: /etc/ansible/playbooks/Splunk_UF_Install/roles/common/files/{{splunk_uf_file_arm}}
+    dest: "{{splunk_working_directory}}"
+    owner: cmbusse
+    group: cmbusse
+    mode: 0644
+  when:
+    - splunk_installer_present.stat.exists == false
+    - splunk_path_present.stat.exists == false
+    - ansible_facts['distribution'] != "CentOS"
+##########
+- name: Untar Splunk UF Package - CentOS
+  command: tar xzf {{splunk_working_directory}}{{splunk_uf_file_centos}} -C /opt
+  args:
+    warn: False
+  become: yes
+  become_method: sudo
+  when:
+    - splunk_path_present.stat.exists == false
+    - ansible_facts['distribution'] == "CentOS"
+ 
+- name: Untar Splunk UF Package - Raspberry Pi
+  command: tar xzf {{splunk_working_directory}}{{splunk_uf_file_arm}} -C /opt
+  args:
+    warn: False
+  become: yes
+  become_method: sudo
+  when:
+    - splunk_path_present.stat.exists == false
+    - ansible_facts['distribution'] != "CentOS"
+###########
+- name: Copy user-seed.conf to Forwarder Location
+  copy:
+    src: /etc/ansible/playbooks/Splunk_UF_Install/roles/common/files/user-seed.conf
+    dest: /opt/splunkforwarder/etc/system/local/
+    owner: cmbusse
+    group: cmbusse
+    mode: 0644
+  become: yes
+  become_method: sudo
+  #################    
+  - name: Start Splunk Forwarder
+  command: /opt/splunkforwarder/bin/splunk start --accept-license
+  become: yes
+  become_method: sudo
+  ##########
+  - name: Set Deployment Server
+  command: /opt/splunkforwarder/bin/splunk set deploy-poll -auth admin:{{uf_user_password}} https://splunk.bussenet.com:8089
+  become: yes
+  become_method: sudo
+  ####
+  - name: Set forward-server
+  command: /opt/splunkforwarder/bin/splunk add forward-server -auth admin:{{uf_user_password}} splunk.bussenet.com:9997
+  become: yes
+  become_method: sudo
+ 
+- name: Enable Boot Start
+  command: /opt/splunkforwarder/bin/splunk enable boot-start
+  become: yes
+  become_method: sudo
+ 
+- name: Restart Splunk forwarder
+  command: /opt/splunkforwarder/bin/splunk restart
+  become: yes
+  become_method: sudo
+...
+####
